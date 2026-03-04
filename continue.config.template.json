@@ -1,24 +1,24 @@
 {
   "models": [
     {
-      "title": "Local — Primary",
-      "provider": "ollama",
+      "title": "Local Qwen Unsloth",
+      "provider": "openai",
       "model": "${PRIMARY_MODEL}",
-      "apiBase": "${OLLAMA_HOST}",
+      "apiBase": "http://127.0.0.1:8080/v1",
+      "apiKey": "vuoto",
       "contextLength": 32768,
-      "systemMessage": "Sei un assistente AI specializzato nello sviluppo del codice. Sii formale, diretto e conciso. NON scusarti e NON usare convenevoli. Rispondi sempre solo con il codice o con la spiegazione tecnica essenziale. NON generare codice nuovo da zero a meno che non sia espressamente richiesto. Il tuo compito principale è suggerire modifiche, correzioni o integrazioni al codice ATTUALE dell'utente, fornendo solo le porzioni di codice da sostituire o aggiungere."
+      "systemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire."
     }
   ],
   "tabAutocompleteModel": {
     "title": "Local — Autocomplete",
-    "provider": "ollama",
+    "provider": "openai",
     "model": "${AUTOCOMPLETE_MODEL}",
-    "apiBase": "${OLLAMA_HOST}"
+    "apiBase": "http://127.0.0.1:8080/v1",
+    "apiKey": "vuoto"
   },
   "embeddingsProvider": {
-    "provider": "ollama",
-    "model": "${EMBEDDING_MODEL}",
-    "apiBase": "${OLLAMA_HOST}"
+    "provider": "transformers.js"
   },
   "contextProviders": [
     {
@@ -34,5 +34,9 @@
       "params": {}
     }
   ],
+  "systemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire.",
+  "chatOptions": {
+    "baseSystemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire."
+  },
   "allowAnonymousTelemetry": false
 }

@@ -80,32 +80,32 @@ check_components() {
   log_section "Verifica componenti"
   load_env
 
-  # Ollama
-  if command -v ollama &>/dev/null; then
-    log_ok "Ollama installato: $(ollama --version 2>/dev/null || echo 'versione sconosciuta')"
+  # Llama.cpp
+  if command -v llama-server &>/dev/null; then
+    log_ok "Llama.cpp installato: $(llama-server --version 2>/dev/null | cut -d' ' -f2 | head -1)"
   else
-    log_warn "Ollama NON installato"
+    log_warn "Llama.cpp NON installato"
   fi
 
-  # Ollama running
-  if curl -s "${OLLAMA_HOST}/api/tags" &>/dev/null; then
-    log_ok "Ollama in esecuzione su ${OLLAMA_HOST}"
+  # Llama server running
+  if curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null; then
+    log_ok "Llama Server in esecuzione"
   else
-    log_warn "Ollama NON in esecuzione"
+    log_warn "Llama Server NON in esecuzione"
   fi
 
   # Modelli
-  if command -v ollama &>/dev/null; then
-    local installed_models
-    installed_models=$(ollama list 2>/dev/null | awk 'NR>1 {print $1}' || true)
-
-    for model in "$PRIMARY_MODEL" "$AUTOCOMPLETE_MODEL" "$EMBEDDING_MODEL"; do
-      if echo "$installed_models" | grep -qF "$model"; then
-        log_ok "Modello presente: $model"
-      else
-        log_warn "Modello mancante: $model"
-      fi
-    done
+  local models_dir="$SCRIPT_DIR/models"
+  if [[ -d "$models_dir" ]]; then
+    local installed_ggufs
+    installed_ggufs=$(ls -1 "$models_dir"/*.gguf 2>/dev/null | xargs -n 1 basename || true)
+    if [[ -n "$installed_ggufs" ]]; then
+      log_ok "Modelli trovati in $models_dir: $(echo "$installed_ggufs" | wc -l | tr -d ' ') GGUF"
+    else
+      log_warn "Nessun modello (.gguf) trovato in $models_dir"
+    fi
+  else
+    log_warn "Cartella $models_dir mancante"
   fi
 
   # Claude Code
@@ -142,13 +142,14 @@ install_all() {
   log_section "Installazione componenti"
   load_env
 
-  # 1. Ollama
-  if ! command -v ollama &>/dev/null; then
-    log_info "Installazione Ollama..."
-    brew install ollama
-    log_ok "Ollama installato"
+  # 1. Llama.cpp
+  if ! command -v llama-server &>/dev/null; then
+    log_info "Installazione Llama.cpp e dipendenze Python (HuggingFace)..."
+    brew install llama.cpp
+    pip3 install huggingface_hub hf_transfer &>/dev/null || true
+    log_ok "Llama.cpp installato"
   else
-    log_ok "Ollama già presente"
+    log_ok "Llama.cpp già presente"
   fi
 
   # 2. Node.js (LTS)
@@ -187,8 +188,8 @@ install_all() {
     log_ok "Continue.dev già presente"
   fi
 
-  # 6. Pull modelli mancanti
-  pull_models
+  # 6. Pull modelli
+  log_warn "Usa '$0 pull <repo>' per scaricare modelli per la suite"
 
   # 7. Genera Continue config
   generate_continue_config
@@ -196,39 +197,75 @@ install_all() {
   log_ok "\n✅ Installazione completata!"
 }
 
-# ── Assicura che Ollama sia avviato ─────────────────────────────
-ensure_ollama_running() {
-  if ! curl -s "${OLLAMA_HOST}/api/tags" &>/dev/null; then
-    log_info "Avvio Ollama in background silenzioso..."
-    nohup ollama serve > /dev/null 2>&1 &
+# ── Assicura che Llama Server sia avviato ─────────────────────
+ensure_llama_server_running() {
+  local model_file="${PRIMARY_MODEL:-}"
+  if [[ -z "$model_file" || "$model_file" == "none" ]]; then
+    log_warn "Nessun PRIMARY_MODEL definito in .env. Usa '$0 setup-models'."
+    return 0
+  fi
+  
+  local model_path="$SCRIPT_DIR/models/$model_file"
+  if [[ ! -f "$model_path" ]]; then
+    model_path="${model_file/#\~/$HOME}"
+    if [[ ! -f "$model_path" ]]; then
+      log_error "Modello non trovato: $model_file (Cercato in: $SCRIPT_DIR/models)"
+      return 1
+    fi
+  fi
+
+  if ! curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null; then
+    log_info "Avvio Llama Server ($model_file) in background silenzioso..."
+    pkill -x llama-server || true
+    nohup llama-server -m "$model_path" -c 32768 --port 8080 > /dev/null 2>&1 &
     local retries=0
-    until curl -s "${OLLAMA_HOST}/api/tags" &>/dev/null || [[ $retries -ge 10 ]]; do
-      sleep 1; ((retries++))
+    until curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null || [[ $retries -ge 15 ]]; do
+      sleep 2; ((retries++))
     done
-    log_ok "Ollama pronto su ${OLLAMA_HOST}"
+    log_ok "Llama Server pronto su http://127.0.0.1:8080"
   else
-    log_ok "Ollama già in esecuzione"
+    log_ok "Llama Server già in esecuzione"
   fi
 }
 
-# ── Pull modelli Ollama ─────────────────────────────────────────
-pull_models() {
-  log_section "Modelli Ollama"
-  load_env
-  ensure_ollama_running
+# ── Pull modello da HuggingFace ─────────────────────────────────
+pull_model() {
+  local repo_id="${1:-}"
+  if [[ -z "$repo_id" ]]; then
+    log_error "Uso: $0 pull <huggingface-repo-id> (es. unsloth/Qwen3.5-9B-GGUF)"
+    return 1
+  fi
 
-  local installed_models
-  installed_models=$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+  local dest_dir="$SCRIPT_DIR/models"
+  mkdir -p "$dest_dir"
+  log_section "Download Modello: $repo_id"
+  
+  export HF_HUB_ENABLE_HF_TRANSFER=1
+  python3 -c "
+import os, sys
+try:
+    from huggingface_hub import hf_hub_download, list_repo_files
+except ImportError:
+    print('Librerie mancanti. Esegui: pip3 install huggingface_hub hf_transfer')
+    sys.exit(1)
 
-  for model in "$PRIMARY_MODEL" "$AUTOCOMPLETE_MODEL" "$EMBEDDING_MODEL"; do
-    if echo "$installed_models" | grep -qF "$model"; then
-      log_ok "Già presente: $model"
-    else
-      log_info "Download: $model ..."
-      ollama pull "$model"
-      log_ok "Scaricato: $model"
-    fi
-  done
+repo = '$repo_id'
+try:
+    print(f'Ricerca file GGUF in {repo}...')
+    files = list_repo_files(repo)
+    ggufs = [f for f in files if f.endswith('.gguf')]
+    if not ggufs:
+        print('Nessun file GGUF trovato nel repo.')
+        sys.exit(1)
+        
+    target = next((f for f in ggufs if 'Q4_K_M' in f.upper()), ggufs[0])
+    print(f'Avvio download di {target} in $dest_dir ...')
+    hf_hub_download(repo_id=repo, filename=target, local_dir='$dest_dir')
+    print('Download completato con successo!')
+except Exception as e:
+    print(f'Errore durante il download: {e}')
+    sys.exit(1)
+"
 }
 
 # ── Genera Continue.dev config ──────────────────────────────────
@@ -253,14 +290,15 @@ generate_continue_config() {
 interactive_model_selection() {
   log_section "Configurazione interattiva modelli"
   load_env
-  ensure_ollama_running
-
-  # Estrai modelli in una lista pulita (rimuovi l'intestazione e prendi la prima colonna)
+  
+  local models_dir="$SCRIPT_DIR/models"
+  mkdir -p "$models_dir"
+  
   local installed_models
-  installed_models=$(ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+  installed_models=$(ls -1 "$models_dir"/*.gguf 2>/dev/null | xargs -n 1 basename || true)
 
   if [[ -z "$installed_models" ]]; then
-    log_error "Nessun modello trovato in Ollama. Usa '$0 models' o '$0 install' prima."
+    log_error "Nessun modello trovato in $models_dir. Usa '$0 pull <repo>' prima."
     return 1
   fi
 
@@ -322,15 +360,11 @@ update_all() {
   log_section "Aggiornamento componenti"
   load_env
 
-  log_info "Aggiornamento Ollama..."
-  if brew upgrade ollama 2>/dev/null; then
-    log_ok "Ollama aggiornato"
-    if pgrep -x ollama &>/dev/null; then
-      log_info "Riavvio daemon Ollama in background per applicare l'aggiornamento..."
-      pkill -x ollama || true
-    fi
+  log_info "Aggiornamento Llama.cpp..."
+  if brew upgrade llama.cpp 2>/dev/null; then
+    log_ok "Llama.cpp aggiornato"
   else
-    log_ok "Ollama già aggiornato"
+    log_ok "Llama.cpp già aggiornato"
   fi
 
   log_info "Aggiornamento Claude Code..."
@@ -341,12 +375,7 @@ update_all() {
   code --install-extension continue.continue --force 2>/dev/null \
     && log_ok "Continue.dev aggiornato" || log_warn "Aggiornamento Continue.dev fallito"
 
-  log_info "Aggiornamento modelli Ollama..."
-  ensure_ollama_running
-  for model in "$PRIMARY_MODEL" "$AUTOCOMPLETE_MODEL" "$EMBEDDING_MODEL"; do
-    log_info "  Pull: $model"
-    ollama pull "$model" && log_ok "  $model aggiornato"
-  done
+  ensure_llama_server_running
 
   log_ok "Update completato"
 }
@@ -362,13 +391,13 @@ launch() {
     update_all
   fi
 
-  # Avvia Ollama in background se non già in esecuzione
-  ensure_ollama_running
+  # Avvia Llama Server in background se non già in esecuzione
+  ensure_llama_server_running
 
-  # Esporta variabili per Claude Code → Ollama
-  export ANTHROPIC_AUTH_TOKEN=ollama
-  export ANTHROPIC_API_KEY=""
-  export ANTHROPIC_BASE_URL="${OLLAMA_HOST}"
+  # Esporta variabili per Claude Code → Llama Server
+  export ANTHROPIC_AUTH_TOKEN="vuoto"
+  export ANTHROPIC_API_KEY="vuoto"
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8080/v1"
   export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}"
 
   # Apri VS Code
@@ -404,10 +433,10 @@ launch() {
 # ── Stop ────────────────────────────────────────────────────────
 stop() {
   log_section "Stop suite"
-  if pgrep -x ollama &>/dev/null; then
-    pkill -x ollama && log_ok "Ollama fermato"
+  if pgrep -x llama-server &>/dev/null; then
+    pkill -x llama-server && log_ok "Llama Server fermato"
   else
-    log_info "Ollama non era in esecuzione"
+    log_info "Llama Server non era in esecuzione"
   fi
 }
 
@@ -421,12 +450,12 @@ ${BOLD}Uso:${RESET}
 
 ${BOLD}Comandi:${RESET}
   ${GREEN}check${RESET}      Verifica stato sistema e componenti
-  ${GREEN}install${RESET}    Installa tutto (Ollama, Claude Code, VS Code, Continue.dev, modelli)
-  ${GREEN}update${RESET}     Aggiorna tutti i componenti e modelli
-  ${GREEN}launch${RESET}     Avvia la suite completa (Ollama + VS Code + Claude Code)
-  ${GREEN}stop${RESET}       Ferma Ollama
-  ${GREEN}models${RESET}     Scarica/aggiorna solo i modelli configurati in .env
-  ${GREEN}setup-models${RESET} Configura dinamicamente quali modelli usare (interattivo)
+  ${GREEN}install${RESET}    Installa tutto (Llama.cpp, Claude Code, VS Code, Continue.dev)
+  ${GREEN}update${RESET}     Aggiorna tutti i componenti software
+  ${GREEN}launch${RESET}     Avvia la suite completa (Llama Server + VS Code + Claude)
+  ${GREEN}stop${RESET}       Ferma Llama Server in background
+  ${GREEN}pull <repo>${RESET} Scarica un modello .gguf da repository HuggingFace
+  ${GREEN}setup-models${RESET} Configura dinamicamente quali modelli usare in .env
   ${GREEN}config${RESET}     Rigenera il config di Continue.dev da template
   ${GREEN}help${RESET}       Mostra questo messaggio
 
@@ -443,7 +472,7 @@ case "${1:-help}" in
   update)  update_all ;;
   launch)  launch ;;
   stop)    stop ;;
-  models)  pull_models ;;
+  pull)    pull_model "${2:-}" ;;
   setup-models) interactive_model_selection ;;
   config)  generate_continue_config ;;
   help|--help|-h) usage ;;

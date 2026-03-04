@@ -1,0 +1,16 @@
+# Local AI Suite - Ignored Files
+
+# Modelli (File GGUF enormi)
+models/
+*.gguf
+
+# Cartelle Python e cache
+__pycache__/
+*.pyc
+.cache/
+
+# File di configurazione sensibili
+.env
+
+# File di sistema macOS
+.DS_Store
