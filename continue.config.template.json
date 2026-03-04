@@ -1,0 +1,38 @@
+{
+  "models": [
+    {
+      "title": "Local — Primary",
+      "provider": "ollama",
+      "model": "${PRIMARY_MODEL}",
+      "apiBase": "${OLLAMA_HOST}",
+      "contextLength": 32768,
+      "systemMessage": "Sei un assistente AI specializzato nello sviluppo del codice. Sii formale, diretto e conciso. NON scusarti e NON usare convenevoli. Rispondi sempre solo con il codice o con la spiegazione tecnica essenziale. NON generare codice nuovo da zero a meno che non sia espressamente richiesto. Il tuo compito principale è suggerire modifiche, correzioni o integrazioni al codice ATTUALE dell'utente, fornendo solo le porzioni di codice da sostituire o aggiungere."
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Local — Autocomplete",
+    "provider": "ollama",
+    "model": "${AUTOCOMPLETE_MODEL}",
+    "apiBase": "${OLLAMA_HOST}"
+  },
+  "embeddingsProvider": {
+    "provider": "ollama",
+    "model": "${EMBEDDING_MODEL}",
+    "apiBase": "${OLLAMA_HOST}"
+  },
+  "contextProviders": [
+    {
+      "name": "codebase",
+      "params": {}
+    },
+    {
+      "name": "folder",
+      "params": {}
+    },
+    {
+      "name": "docs",
+      "params": {}
+    }
+  ],
+  "allowAnonymousTelemetry": false
+}
