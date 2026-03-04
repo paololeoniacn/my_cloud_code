@@ -4,7 +4,7 @@
       "title": "Local Qwen Unsloth",
       "provider": "openai",
       "model": "${PRIMARY_MODEL}",
-      "apiBase": "http://127.0.0.1:8080/v1",
+      "apiBase": "${LLAMA_SERVER_URL}",
       "apiKey": "vuoto",
       "contextLength": 32768,
       "systemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire."
@@ -14,7 +14,7 @@
     "title": "Local — Autocomplete",
     "provider": "openai",
     "model": "${AUTOCOMPLETE_MODEL}",
-    "apiBase": "http://127.0.0.1:8080/v1",
+    "apiBase": "${LLAMA_SERVER_URL}",
     "apiKey": "vuoto"
   },
   "embeddingsProvider": {

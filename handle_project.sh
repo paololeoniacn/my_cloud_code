@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
 #  handle_project.sh — local-ai-suite manager
-#  Gestisce: Ollama, Claude Code, Continue.dev, VS Code
+#  Gestisce: Llama.cpp, Claude Code, Continue.dev, VS Code
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -72,19 +72,21 @@ check_system() {
     log_ok "Git $(git --version | awk '{print $3}')"
   fi
 
-  $ok && log_ok "Sistema OK" || log_warn "Alcuni componenti mancanti — usa: $0 install"
+  $ok && log_ok "Sistema OK" || { log_error "Requisiti di base Apple mancanti (es. Homebrew). Installalo prima di procedere."; return 1; }
 }
 
 # ── Verifica stato componenti ───────────────────────────────────
 check_components() {
   log_section "Verifica componenti"
   load_env
+  local ok=true
 
   # Llama.cpp
   if command -v llama-server &>/dev/null; then
     log_ok "Llama.cpp installato: $(llama-server --version 2>/dev/null | cut -d' ' -f2 | head -1)"
   else
     log_warn "Llama.cpp NON installato"
+    ok=false
   fi
 
   # Llama server running
@@ -103,9 +105,11 @@ check_components() {
       log_ok "Modelli trovati in $models_dir: $(echo "$installed_ggufs" | wc -l | tr -d ' ') GGUF"
     else
       log_warn "Nessun modello (.gguf) trovato in $models_dir"
+      ok=false
     fi
   else
     log_warn "Cartella $models_dir mancante"
+    ok=false
   fi
 
   # Claude Code
@@ -113,6 +117,7 @@ check_components() {
     log_ok "Claude Code installato: $(claude --version 2>/dev/null || echo 'ok')"
   else
     log_warn "Claude Code NON installato"
+    ok=false
   fi
 
   # VS Code
@@ -120,6 +125,7 @@ check_components() {
     log_ok "VS Code installato: $(code --version 2>/dev/null | head -1)"
   else
     log_warn "VS Code NON installato (o 'code' non nel PATH)"
+    ok=false
   fi
 
   # Continue.dev
@@ -127,6 +133,7 @@ check_components() {
     log_ok "Continue.dev installato"
   else
     log_warn "Continue.dev NON installato"
+    ok=false
   fi
 
   # Continue config
@@ -134,7 +141,14 @@ check_components() {
     log_ok "Continue config presente: $CONTINUE_CONFIG"
   else
     log_warn "Continue config mancante (usa: $0 install per generarlo)"
+    ok=false
   fi
+
+  if ! $ok; then
+    log_warn "Elementi critici mancanti."
+    return 1
+  fi
+  log_ok "Suite pienamente operativa!"
 }
 
 # ── Installa tutto ──────────────────────────────────────────────
@@ -217,7 +231,7 @@ ensure_llama_server_running() {
   if ! curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null; then
     log_info "Avvio Llama Server ($model_file) in background silenzioso..."
     pkill -x llama-server || true
-    nohup llama-server -m "$model_path" -c 32768 --port 8080 > /dev/null 2>&1 &
+    nohup llama-server -m "$model_path" -c "${LLAMA_CONTEXT_LENGTH:-32768}" --port 8080 --metrics > /dev/null 2>&1 &
     local retries=0
     until curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null || [[ $retries -ge 15 ]]; do
       sleep 2; ((retries++))
@@ -278,9 +292,9 @@ generate_continue_config() {
   # Sostituisce le variabili nel template
   sed \
     -e "s|\${PRIMARY_MODEL}|${PRIMARY_MODEL}|g" \
-    -e "s|\${AUTOCOMPLETE_MODEL}|${AUTOCOMPLETE_MODEL}|g" \
-    -e "s|\${EMBEDDING_MODEL}|${EMBEDDING_MODEL}|g" \
-    -e "s|\${OLLAMA_HOST}|${OLLAMA_HOST}|g" \
+    -e "s|\${AUTOCOMPLETE_MODEL}|${AUTOCOMPLETE_MODEL:-none}|g" \
+    -e "s|\${EMBEDDING_MODEL}|${EMBEDDING_MODEL:-none}|g" \
+    -e "s|\${LLAMA_SERVER_URL}|${LLAMA_SERVER_URL:-http://127.0.0.1:8080/v1}|g" \
     "$CONTINUE_TEMPLATE" > "$CONTINUE_CONFIG"
 
   log_ok "Config generata: $CONTINUE_CONFIG"
@@ -385,6 +399,25 @@ launch() {
   log_section "Avvio suite"
   load_env
 
+  # Controllo propedeutico della workstation (Homebrew e macOS base)
+  if ! check_system; then
+    log_error "Sistema non idoneo al lancio. Risolvi i requisiti primari su macOS."
+    exit 1
+  fi
+
+  # Auto-installazione componenti mancanti
+  if ! check_components; then
+    log_warn "Rilevati componenti mancanti in check! Attivo auto-installazione..."
+    install_all
+    
+    # Ri-verifica post installazione: se manca il GGUF (che non scarichiamo con install), fermati con errore.
+    if ! check_components; then
+       log_error "\nMancanza non risolvibile automaticamente (forse manca il file modello GGUF?)."
+       log_warn "Usa prima: $0 pull unsloth/Qwen3.5-9B-GGUF"
+       exit 1
+    fi
+  fi
+
   # Auto-update se abilitato
   if [[ "${AUTO_UPDATE:-false}" == "true" ]]; then
     log_info "AUTO_UPDATE abilitato — controllo aggiornamenti..."
@@ -398,10 +431,10 @@ launch() {
   export ANTHROPIC_AUTH_TOKEN="vuoto"
   export ANTHROPIC_API_KEY="vuoto"
   export ANTHROPIC_BASE_URL="http://127.0.0.1:8080/v1"
-  export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH}"
+  export LLAMA_CONTEXT_LENGTH="${LLAMA_CONTEXT_LENGTH:-32768}"
 
   # Apri VS Code
-  local workspace="${WORKSPACE_PATH:-}"
+  local workspace="${1:-$WORKSPACE_PATH}"
   if [[ -z "$workspace" ]]; then
     echo ""
     read -rp ">> Inserisci il path del progetto da aprire (o premi Invio per la cartella corrente '.'): " workspace
@@ -418,9 +451,14 @@ launch() {
   cd "$workspace" || log_warn "Impossibile muoversi in $workspace, Claude Code userà la cartella corrente"
 
 
-  # Avvia Claude Code (opzionale)
+  # Avvia Claude Code (opzionale con timeout)
   echo ""
-  read -rp ">> Vuoi avviare anche l'agente da terminale Claude Code? [y/N]: " start_claude
+  log_info "Hai 5 secondi per decidere se avviare Claude Code..."
+  local start_claude="n"
+  if read -t 5 -rp ">> Vuoi avviare anche l'agente da terminale Claude Code? [y/N]: " user_input; then
+    start_claude="${user_input:-n}"
+  fi
+  
   if [[ "$start_claude" =~ ^[Yy] ]]; then
     log_info "Avvio Claude Code con modello: ${PRIMARY_MODEL}"
     log_info "(usa Ctrl+C per uscire)\n"
@@ -470,7 +508,7 @@ case "${1:-help}" in
   check)   check_system; check_components ;;
   install) install_all ;;
   update)  update_all ;;
-  launch)  launch ;;
+  launch)  launch "${2:-}" ;;
   stop)    stop ;;
   pull)    pull_model "${2:-}" ;;
   setup-models) interactive_model_selection ;;

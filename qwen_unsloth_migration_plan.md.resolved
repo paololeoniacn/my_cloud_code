@@ -1,0 +1,76 @@
+# Piano di Migrazione ad Architettura `llama.cpp` (Qwen 3.5 Unsloth)
+
+Questo documento guida la transizione completa dell'ecosistema locale: l'abbandono di **Ollama** in favore del motore nativo open-source **`llama.cpp`**, necessario per supportare la nuovissima tecnologia di quantizzazione dinamica di [Unsloth per Qwen 3.5](https://unsloth.ai/docs/models/qwen3.5).
+
+Questa operazione permetterà al Mac M4 di scaricare e utilizzare il modello **Qwen 3.5 (9B o 14B)** con consumi di RAM dimezzati e velocità di inferenza teoricamente raddoppiata.
+
+---
+
+## FASE 1: Preparazione e Installazione dei Nuovi Strumenti
+Dobbiamo installare il motore inferenziale nudo e crudo e il downloader per i file.
+
+1. **Fermi tutti i motori vecchi:** Uccidere il processo di Ollama in background con `pkill -x ollama` per liberare memoria e porte.
+2. **Installazione di `llama.cpp`:** Su Mac, il metodo più ottimizzato per scaricare il motore che sfrutta i core dell'Apple Silicon è tramite Homebrew:
+   ```bash
+   brew install llama.cpp
+   ```
+3. **Installazione di `huggingface-cli`:** Il tool necessario per scaricare file massivi in formato raw (GGUF) senza saturare i browser in modo rapido.
+   ```bash
+   pip3 install huggingface_hub hf_transfer
+   ```
+
+---
+
+## FASE 2: Download Fisico dei Modelli (GGUF 2.0)
+I modelli *Unsloth* vengono creati e rilasciati come giganteschi file binari compattati (`.gguf`).
+Li salveremo in una cartella centralizzata (es. `~/.models/`), scaricandoli dal repository ufficiale che ci ha indicato il manuale:
+
+1. Creazione della directory per il progetto: `mkdir -p ~/.models`
+2. Download del modello primario (es: Qwen3.5 9B variante 4-bit):
+   ```bash
+   HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download unsloth/Qwen3.5-9B-GGUF unsloth.Q4_K_M.gguf --local-dir ~/.models --local-dir-use-symlinks False
+   ```
+3. Download di un modello di **Embeddings** (necessario a Continue per il comando `@codebase`). Su llama.cpp l'embedding va servito o gestito in maniera separata (una sfida strutturale), oppure scaricheremo la versione GGUF di Nomic Embed.
+
+---
+
+## FASE 3: Riscrittura Logica di [handle_project.sh](file:///Users/paolo.leoni/git/pl/my_cloud_code/handle_project.sh)
+Lo script che gestisce l'apertura del terminale deve cambiare radicalmente il suo comportamento:
+
+1. **Rimozione Ollama:** I comandi interni di check, pull, installazione e stop che citano *Ollama* dovranno essere disabilitati/commentati.
+2. **Avvio del `llama-server`:** Verrà creata una nuova funzione `ensure_llama_server_running()` che lancia in background invisibile:
+   ```bash
+   nohup llama-server -m ~/.models/unsloth.Q4_K_M.gguf --port 8080 -c 32768 --parallel 4 > /dev/null 2>&1 &
+   ```
+   *Nota tecnica: Il server esporrà l'accesso alla porta `8080` (anziché `11434` di Ollama).*
+3. **Stop Procedure:** Modificare la funzione [stop()](file:///Users/paolo.leoni/git/pl/my_cloud_code/handle_project.sh#405-413) di chiusura per farle eseguire `pkill -x llama-server`.
+4. **Variabili Claude Code:** Claude Code andrà re-indirizzato impostando `ANTHROPIC_BASE_URL="http://127.0.0.1:8080/v1"` per simulare che stia parlando con le API online.
+
+---
+
+## FASE 4: Aggiornamento Configurazione di (VS Code) Continue.dev
+Siccome non stiamo più usando un "provider Ollama" ufficiale, inganneremo volutamente Continue.dev facendogli credere di interfacciarsi con il cloud di OpenAI, anche se i pacchetti resteranno fisicamente intrappolati nel loopback del tuo Mac M4.
+
+1. **Modifica al [config.json](file:///Users/paolo.leoni/.continue/config.json) e template:**
+   I singoli nodi di configurazione dei modelli passeranno dal provider [ollama](file:///Users/paolo.leoni/git/pl/my_cloud_code/handle_project.sh#200-213) al provider universale `openai`.
+   ```json
+   {
+     "title": "Local Qwen Unsloth",
+     "provider": "openai",
+     "model": "qwen3.5-9b",
+     "apiBase": "http://127.0.0.1:8080/v1",
+     "apiKey": "vuoto",
+     "contextLength": 32768,
+     "systemMessage": "..." 
+   }
+   ```
+
+---
+
+## Check di Fine Lavori 🏁
+Una volta conclusi questi passaggi, potrai digitare `./handle_project.sh launch`:
+- Non verrai più avvisato di avviare Ollama.
+- Llama.cpp caricherà instaneamente i VRAM/RAM unificata il blocco Unsloth ottimizzato.
+- VS Code si farà trovare pronto a recepire comandi ultra-veloci da zero sulla destra e comandi di codice puntuali tramite la combinazione `Cmd + I` (che diventerà palesemente più scattante).
+
+> **Azione Utente Necessaria:** Quando sarai pronto a riprendere l'operazione, semplicemente dimmi: *"Esegui la Fase 1 del piano"*. 
