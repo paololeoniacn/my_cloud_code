@@ -13,6 +13,7 @@ ENV_FILE="$SCRIPT_DIR/.env"
 ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
 CONTINUE_TEMPLATE="$SCRIPT_DIR/continue.config.template.json"
 CONTINUE_CONFIG="$HOME/.continue/config.json"
+LLAMA_LOG_FILE="/tmp/llama_server.log"
 
 # ── Colori ──────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -231,7 +232,17 @@ ensure_llama_server_running() {
   if ! curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null; then
     log_info "Avvio Llama Server ($model_file) in background silenzioso..."
     pkill -x llama-server || true
-    nohup llama-server -m "$model_path" -c "${LLAMA_CONTEXT_LENGTH:-32768}" --port 8080 --metrics > /dev/null 2>&1 &
+    # Setup Ottimizzato (Consigli Esperto): Flash Attention + KV Cache q8_0 + Stabilità parallela
+    nohup llama-server -m "$model_path" \
+      -c "${LLAMA_CONTEXT_LENGTH:-32768}" \
+      -ngl 26 \
+      --cache-type-k q8_0 \
+      --cache-type-v q8_0 \
+      -b 1024 \
+      --port 8080 \
+      --metrics \
+      -fa auto > "$LLAMA_LOG_FILE" 2>&1 &
+    disown
     local retries=0
     until curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null || [[ $retries -ge 15 ]]; do
       sleep 2; ((retries++))
@@ -240,6 +251,24 @@ ensure_llama_server_running() {
   else
     log_ok "Llama Server già in esecuzione"
   fi
+}
+
+# ── Monitor in tempo reale ──────────────────────────────────────
+monitor() {
+  log_section "Llama Monitor — Statistiche e Pensieri dell'AI"
+  if [[ ! -f "$LLAMA_LOG_FILE" ]]; then
+    log_error "File di log non trovato. Il server è stato avviato?"
+    return 1
+  fi
+  log_info "Premi Ctrl+C per chiudere il monitor e tornare al terminale."
+  log_info "(Il server continuerà a girare in background)\n"
+  tail -n 50 -f "$LLAMA_LOG_FILE"
+}
+
+# ── Apre il monitor in una nuova finestra (Solo macOS) ───────────
+open_monitor_window() {
+  log_info "Apertura Sala Controllo in una nuova finestra..."
+  osascript -e "tell application \"Terminal\" to do script \"cd '$SCRIPT_DIR' && ./handle_project.sh monitor\"" > /dev/null
 }
 
 # ── Pull modello da HuggingFace ─────────────────────────────────
@@ -398,6 +427,7 @@ update_all() {
 launch() {
   log_section "Avvio suite"
   load_env
+  generate_continue_config
 
   # Controllo propedeutico della workstation (Homebrew e macOS base)
   if ! check_system; then
@@ -464,7 +494,9 @@ launch() {
     log_info "(usa Ctrl+C per uscire)\n"
     claude --model "${PRIMARY_MODEL}"
   else
-    log_ok "Claude Code ignorato. La suite è pronta per l'uso all'interno di VS Code con Continue.dev!"
+    log_ok "Claude Code saltato. La suite è operativa su VS Code."
+    open_monitor_window
+    log_ok "Puoi chiudere questo terminale se vuoi, il server resterà attivo."
   fi
 }
 
@@ -494,6 +526,7 @@ ${BOLD}Comandi:${RESET}
   ${GREEN}stop${RESET}       Ferma Llama Server in background
   ${GREEN}pull <repo>${RESET} Scarica un modello .gguf da repository HuggingFace
   ${GREEN}setup-models${RESET} Configura dinamicamente quali modelli usare in .env
+  ${GREEN}monitor${RESET}      Mostra i log in tempo reale del cervello AI
   ${GREEN}config${RESET}     Rigenera il config di Continue.dev da template
   ${GREEN}help${RESET}       Mostra questo messaggio
 
@@ -512,6 +545,7 @@ case "${1:-help}" in
   stop)    stop ;;
   pull)    pull_model "${2:-}" ;;
   setup-models) interactive_model_selection ;;
+  monitor) monitor ;;
   config)  generate_continue_config ;;
   help|--help|-h) usage ;;
   *)

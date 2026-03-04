@@ -1,19 +1,25 @@
 {
   "models": [
     {
-      "title": "Local Qwen Unsloth",
+      "title": "Local Qwen Unsloth (Optimal)",
       "provider": "openai",
       "model": "${PRIMARY_MODEL}",
       "apiBase": "${LLAMA_SERVER_URL}",
       "apiKey": "vuoto",
-      "contextLength": 32768,
-      "systemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire."
+      "contextLength": 64000,
+      "completionOptions": {
+        "temperature": 0.2,
+        "topP": 0.9,
+        "minP": 0.05,
+        "repeatPenalty": 1.05
+      },
+      "systemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni. Quando proponi modifiche, fornisci blocchi di codice pronti all'uso."
     }
   ],
   "tabAutocompleteModel": {
     "title": "Local — Autocomplete",
     "provider": "openai",
-    "model": "${AUTOCOMPLETE_MODEL}",
+    "model": "${AUTOCOMPLETE_MODEL:-none}",
     "apiBase": "${LLAMA_SERVER_URL}",
     "apiKey": "vuoto"
   },
@@ -24,19 +30,11 @@
     {
       "name": "codebase",
       "params": {}
-    },
-    {
-      "name": "folder",
-      "params": {}
-    },
-    {
-      "name": "docs",
-      "params": {}
     }
   ],
-  "systemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire.",
+  "systemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni.",
   "chatOptions": {
-    "baseSystemMessage": "Sei un assistente AI super-specializzato. Sii ESTREMAMENTE conciso e formale. NON fare saluti, convenevoli o introduzioni. NON generare esempi teorici o file fittizi da zero. Se l'utente non fornisce file o codice, scrivi solo: 'Per favore, forniscimi il file o usa il comando @codebase, non genero codice da zero.'. Se l'utente fornisce codice, scrivi SOLTANTO le righe modificate da sostituire."
+    "baseSystemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni."
   },
   "allowAnonymousTelemetry": false
 }
