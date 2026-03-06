@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "title": "Local Qwen Unsloth (Optimal)",
+      "title": "Local Qwen Unsloth (UD-Q6)",
       "provider": "openai",
       "model": "${PRIMARY_MODEL}",
       "apiBase": "${LLAMA_SERVER_URL}",
@@ -13,7 +13,7 @@
         "minP": 0.05,
         "repeatPenalty": 1.05
       },
-      "systemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni. Quando proponi modifiche, fornisci blocchi di codice pronti all'uso."
+      "systemMessage": "1. Max 150 lines per response.\n2. Before any file: list methods as stubs, ask 'Start with [method]?'.\n3. Never open a method you won't close.\n4. Respond with code only for the current task. No explanations."
     }
   ],
   "tabAutocompleteModel": {
@@ -32,9 +32,9 @@
       "params": {}
     }
   ],
-  "systemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni.",
+  "systemMessage": "Max 150 lines. Ask before starting a method. Respond with code only.",
   "chatOptions": {
-    "baseSystemMessage": "Sei un assistente AI senior software engineer. Sii tecnico, asciutto e preciso. NON fare saluti o introduzioni."
+    "baseSystemMessage": "Max 150 lines. Ask before starting a method. Respond with code only."
   },
   "allowAnonymousTelemetry": false
 }

@@ -229,11 +229,36 @@ ensure_llama_server_running() {
     fi
   fi
 
-  if ! curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null; then
-    log_info "Avvio Llama Server ($model_file) in background silenzioso..."
+  # Controlliamo se il server è attivo e se il modello coincide (con parsing robusto)
+  local running_model=""
+  local models_json=""
+  if models_json=$(curl -s "http://127.0.0.1:8080/v1/models"); then
+    running_model=$(echo "$models_json" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    # Prova lo standard OpenAI 'data'
+    if 'data' in d and len(d['data']) > 0:
+        print(d['data'][0]['id'])
+    # Fallback su 'models' (alcune versioni llama-server)
+    elif 'models' in d and len(d['models']) > 0:
+        print(d['models'][0].get('name', ''))
+except:
+    pass
+" 2>/dev/null)
+  fi
+
+  # Nota: l'alias 'claude-3-5-sonnet-20241022' permette a Claude Code di non lamentarsi
+  if [[ -z "$running_model" || "$running_model" != "claude-3-5-sonnet-20241022" ]]; then
+    if [[ -n "$running_model" ]]; then
+      log_warn "Modello errato o non rilevato ($running_model). Riavvio..."
+    else
+      log_info "Avvio Llama Server ($model_file) in background silenzioso..."
+    fi
     pkill -x llama-server || true
-    # Setup Ottimizzato (Consigli Esperto): Flash Attention + KV Cache q8_0 + Stabilità parallela
+    # Setup Ottimizzato (Consigli Esperto): Flash Attention + KV Cache q8_0 + Stabilità parallela + Alias per Claude Code
     nohup llama-server -m "$model_path" \
+      --alias "claude-3-5-sonnet-20241022" \
       -c "${LLAMA_CONTEXT_LENGTH:-32768}" \
       -ngl 26 \
       --cache-type-k q8_0 \
@@ -247,9 +272,9 @@ ensure_llama_server_running() {
     until curl -s "http://127.0.0.1:8080/v1/models" &>/dev/null || [[ $retries -ge 15 ]]; do
       sleep 2; ((retries++))
     done
-    log_ok "Llama Server pronto su http://127.0.0.1:8080"
+    log_ok "Llama Server pronto su http://127.0.0.1:8080 (Alias: claude-3-5-sonnet-20241022)"
   else
-    log_ok "Llama Server già in esecuzione"
+    log_ok "Llama Server già in esecuzione col modello ottimizzato ($running_model)"
   fi
 }
 
@@ -274,8 +299,9 @@ open_monitor_window() {
 # ── Pull modello da HuggingFace ─────────────────────────────────
 pull_model() {
   local repo_id="${1:-}"
+  local target_file="${2:-}" # Parametro opzionale per specificare il file esatto
   if [[ -z "$repo_id" ]]; then
-    log_error "Uso: $0 pull <huggingface-repo-id> (es. unsloth/Qwen3.5-9B-GGUF)"
+    log_error "Uso: $0 pull <huggingface-repo-id> [target-filename] (es. unsloth/Qwen3.5-9B-GGUF Qwen3.5-9B-UD-Q6_K_L.gguf)"
     return 1
   fi
 
@@ -293,17 +319,23 @@ except ImportError:
     sys.exit(1)
 
 repo = '$repo_id'
+filename_override = '$target_file'
 try:
-    print(f'Ricerca file GGUF in {repo}...')
-    files = list_repo_files(repo)
-    ggufs = [f for f in files if f.endswith('.gguf')]
-    if not ggufs:
-        print('Nessun file GGUF trovato nel repo.')
-        sys.exit(1)
-        
-    target = next((f for f in ggufs if 'Q4_K_M' in f.upper()), ggufs[0])
+    if filename_override:
+        target = filename_override
+        print(f'Download forzato di: {target}')
+    else:
+        print(f'Ricerca file GGUF in {repo}...')
+        files = list_repo_files(repo)
+        ggufs = [f for f in files if f.endswith('.gguf')]
+        if not ggufs:
+            print('Nessun file GGUF trovato nel repo.')
+            sys.exit(1)
+            
+        target = next((f for f in ggufs if 'Q4_K_M' in f.upper()), ggufs[0])
+    
     print(f'Avvio download di {target} in $dest_dir ...')
-    hf_hub_download(repo_id=repo, filename=target, local_dir='$dest_dir')
+    hf_hub_download(repo_id=repo, filename=target, local_dir='$dest_dir', local_dir_use_symlinks=False)
     print('Download completato con successo!')
 except Exception as e:
     print(f'Errore durante il download: {e}')
@@ -418,8 +450,6 @@ update_all() {
   code --install-extension continue.continue --force 2>/dev/null \
     && log_ok "Continue.dev aggiornato" || log_warn "Aggiornamento Continue.dev fallito"
 
-  ensure_llama_server_running
-
   log_ok "Update completato"
 }
 
@@ -460,7 +490,7 @@ launch() {
   # Esporta variabili per Claude Code → Llama Server
   export ANTHROPIC_AUTH_TOKEN="vuoto"
   export ANTHROPIC_API_KEY="vuoto"
-  export ANTHROPIC_BASE_URL="http://127.0.0.1:8080/v1"
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
   export LLAMA_CONTEXT_LENGTH="${LLAMA_CONTEXT_LENGTH:-32768}"
 
   # Apri VS Code
@@ -490,14 +520,43 @@ launch() {
   fi
   
   if [[ "$start_claude" =~ ^[Yy] ]]; then
-    log_info "Avvio Claude Code con modello: ${PRIMARY_MODEL}"
+    log_info "Avvio Claude Code (Local Alias: Sonnet)"
     log_info "(usa Ctrl+C per uscire)\n"
-    claude --model "${PRIMARY_MODEL}"
+    claude --model "claude-3-5-sonnet-20241022"
   else
     log_ok "Claude Code saltato. La suite è operativa su VS Code."
     open_monitor_window
     log_ok "Puoi chiudere questo terminale se vuoi, il server resterà attivo."
   fi
+}
+
+# ── Beast Mode (Claude Code Headless) ───────────────────────────
+beast_mode() {
+  local workspace="${1:-${WORKSPACE_PATH:-.}}"
+  workspace="${workspace/#\~/$HOME}"
+  
+  load_env
+  ensure_llama_server_running
+  
+  # Variabili per collegare Claude al server locale (pulizia conflitti)
+  unset ANTHROPIC_AUTH_TOKEN
+  export ANTHROPIC_API_KEY="vuoto"
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
+  export CLAUDE_CODE_SKIP_KEY_PROMPT=true
+  
+  log_section "BEAST MODE ACTIVATED 👹"
+  log_info "Workspace: $workspace"
+  log_info "Modello: ${PRIMARY_MODEL}"
+  log_warn "Modalità headless: l'AI scriverà file senza chiedere conferma!"
+  
+  if [[ ! -d "$workspace" ]]; then
+    log_warn "Il path '$workspace' non è una cartella valida. Uso la cartella corrente."
+    workspace="."
+  fi
+  
+  cd "$workspace" || exit 1
+  # Utilizziamo l'alias Sonnet per bypassare la validazione client di Claude Code
+  claude --dangerously-skip-permissions --model "claude-3-5-sonnet-20241022"
 }
 
 # ── Stop ────────────────────────────────────────────────────────
@@ -523,6 +582,7 @@ ${BOLD}Comandi:${RESET}
   ${GREEN}install${RESET}    Installa tutto (Llama.cpp, Claude Code, VS Code, Continue.dev)
   ${GREEN}update${RESET}     Aggiorna tutti i componenti software
   ${GREEN}launch${RESET}     Avvia la suite completa (Llama Server + VS Code + Claude)
+  ${GREEN}beast <path>${RESET}  Lancia Claude Code in modalità AUTO-PILOT (non chiede conferma)
   ${GREEN}stop${RESET}       Ferma Llama Server in background
   ${GREEN}pull <repo>${RESET} Scarica un modello .gguf da repository HuggingFace
   ${GREEN}setup-models${RESET} Configura dinamicamente quali modelli usare in .env
@@ -542,8 +602,9 @@ case "${1:-help}" in
   install) install_all ;;
   update)  update_all ;;
   launch)  launch "${2:-}" ;;
+  beast)   beast_mode "${2:-}" ;;
   stop)    stop ;;
-  pull)    pull_model "${2:-}" ;;
+  pull)    pull_model "${2:-}" "${3:-}" ;;
   setup-models) interactive_model_selection ;;
   monitor) monitor ;;
   config)  generate_continue_config ;;
