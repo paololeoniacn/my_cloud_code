@@ -6,7 +6,7 @@
       "model": "${PRIMARY_MODEL}",
       "apiBase": "${LLAMA_SERVER_URL}",
       "apiKey": "vuoto",
-      "contextLength": 64000,
+      "contextLength": "${LLAMA_CONTEXT_LENGTH}",
       "completionOptions": {
         "temperature": 0.2,
         "topP": 0.9,

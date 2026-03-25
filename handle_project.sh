@@ -356,6 +356,7 @@ generate_continue_config() {
     -e "s|\${AUTOCOMPLETE_MODEL}|${AUTOCOMPLETE_MODEL:-none}|g" \
     -e "s|\${EMBEDDING_MODEL}|${EMBEDDING_MODEL:-none}|g" \
     -e "s|\${LLAMA_SERVER_URL}|${LLAMA_SERVER_URL:-http://127.0.0.1:8080/v1}|g" \
+    -e "s|\${LLAMA_CONTEXT_LENGTH}|${LLAMA_CONTEXT_LENGTH:-131072}|g" \
     "$CONTINUE_TEMPLATE" > "$CONTINUE_CONFIG"
 
   log_ok "Config generata: $CONTINUE_CONFIG"
