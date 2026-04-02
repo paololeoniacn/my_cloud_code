@@ -41,11 +41,26 @@ cp .env.example .env
 
 Tutto in `.env` (non committato). Vedi `.env.example` per i valori disponibili.
 
+### Directory dei modelli
+
+I file `.gguf` sono salvati in una cartella **esterna al repo** per essere condivisi tra progetti:
+
+```
+/Users/paolo.leoni/git/models/
+├── Qwen3.5-9B-UD-Q6_K_XL.gguf   ← PRIMARY_MODEL
+└── ...altri .gguf...
+```
+
+Configura il path in `.env`:
+```bash
+MODELS_DIR=/Users/paolo.leoni/git/models
+```
+
 Modelli consigliati per M4 24GB:
 
-- Agente: `qwen2.5:14b-instruct-q4_K_M` (già presente) o `qwen2.5-coder:32b`
-- Autocomplete: `qwen2.5-coder:7b-instruct` (già presente)
-- Embeddings: `nomic-embed-text:latest` (già presente)
+- Agente: `Qwen3.5-9B-UD-Q6_K_XL.gguf` (già presente in `$MODELS_DIR`)
+- Autocomplete: un modello più leggero (7B) via `AUTOCOMPLETE_MODEL`
+- Embeddings: `nomic-embed-text:latest` via `EMBEDDING_MODEL`
 
 ### Cambiare i modelli (Interattivo)
 Se hai scaricato nuovi modelli tramite Ollama (`ollama run <nome>`) e desideri assegnarli alla suite, non è più necessario modificare manualmente i file. Puoi lanciare:

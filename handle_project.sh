@@ -15,6 +15,10 @@ CONTINUE_TEMPLATE="$SCRIPT_DIR/continue.config.template.json"
 CONTINUE_CONFIG="$HOME/.continue/config.json"
 LLAMA_LOG_FILE="/tmp/llama_server.log"
 
+# Directory dei modelli — configurabile via MODELS_DIR in .env
+# Default: /Users/paolo.leoni/git/models (cartella esterna al repo)
+MODELS_DIR_DEFAULT="/Users/paolo.leoni/git/models"
+
 # ── Colori ──────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -98,7 +102,7 @@ check_components() {
   fi
 
   # Modelli
-  local models_dir="$SCRIPT_DIR/models"
+  local models_dir="${MODELS_DIR:-$MODELS_DIR_DEFAULT}"
   if [[ -d "$models_dir" ]]; then
     local installed_ggufs
     installed_ggufs=$(ls -1 "$models_dir"/*.gguf 2>/dev/null | xargs -n 1 basename || true)
@@ -109,7 +113,7 @@ check_components() {
       ok=false
     fi
   else
-    log_warn "Cartella $models_dir mancante"
+    log_warn "Cartella $models_dir mancante (configura MODELS_DIR in .env)"
     ok=false
   fi
 
@@ -219,12 +223,13 @@ ensure_llama_server_running() {
     log_warn "Nessun PRIMARY_MODEL definito in .env. Usa '$0 setup-models'."
     return 0
   fi
-  
-  local model_path="$SCRIPT_DIR/models/$model_file"
+
+  local models_dir="${MODELS_DIR:-$MODELS_DIR_DEFAULT}"
+  local model_path="$models_dir/$model_file"
   if [[ ! -f "$model_path" ]]; then
     model_path="${model_file/#\~/$HOME}"
     if [[ ! -f "$model_path" ]]; then
-      log_error "Modello non trovato: $model_file (Cercato in: $SCRIPT_DIR/models)"
+      log_error "Modello non trovato: $model_file (Cercato in: $models_dir)"
       return 1
     fi
   fi
@@ -305,7 +310,7 @@ pull_model() {
     return 1
   fi
 
-  local dest_dir="$SCRIPT_DIR/models"
+  local dest_dir="${MODELS_DIR:-$MODELS_DIR_DEFAULT}"
   mkdir -p "$dest_dir"
   log_section "Download Modello: $repo_id"
   
@@ -366,8 +371,8 @@ generate_continue_config() {
 interactive_model_selection() {
   log_section "Configurazione interattiva modelli"
   load_env
-  
-  local models_dir="$SCRIPT_DIR/models"
+
+  local models_dir="${MODELS_DIR:-$MODELS_DIR_DEFAULT}"
   mkdir -p "$models_dir"
   
   local installed_models
